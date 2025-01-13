@@ -1,0 +1,32 @@
+# .pre-commit-config.yaml
+
+repos:
+  # Local hooks
+  - repo: local
+    hooks:
+      # OpenTofu format - requires OpenTofu to be installed
+      - id: format
+        name: Format OpenTofu .tf files
+        entry: scripts/pc_format_staged.sh
+        language: system
+
+      # Lint OpenTofu .tf files
+      - id: lint
+        name: Lint OpenTofu .tf files with TFLint
+        entry: scripts/pc_lint_staged.sh
+        language: system
+
+      # Generate OpenTofu module README.md
+      - id: docs
+        name: Generate OpenTofu module README.md
+        entry: scripts/pc_docs_staged.sh
+        language: system
+
+  # External hooks
+  # Checkov
+  - repo: https://github.com/bridgecrewio/checkov.git
+    rev: '39d532207b16b7584b30d5b463e528f68c2acfa8' # commit hash for 3.2.346
+    hooks:
+      - id: checkov
+        name: Checkov OpenTofu scan
+        entry: checkov --config-file .checkov.yml
