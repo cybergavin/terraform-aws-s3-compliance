@@ -376,6 +376,38 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
   }
 }
 
+# Start Generation Here
+resource "aws_s3_bucket" "centralized_logs" {
+  bucket = module.storage_s3_logging_label.id
+  
+  tags = var.global_tags
+  
+}
+
+resource "aws_cloudtrail" "s3_data_events" {
+  for_each = {
+    for k, v in local.validated_bucket_configs : k => v
+    if v.logging_enabled
+  }
+
+  name                          = "${each.key}-s3-data-events"
+  s3_bucket_name                = aws_s3_bucket.centralized_logs.bucket
+  s3_key_prefix                 = "${each.key}/"
+  is_multi_region_trail         = true
+  enable_logging                = true
+
+  event_selector {
+    read_write_type = "All"
+    include_management_events = false
+
+    data_resource {
+      type = "AWS::S3::Object"
+      values = ["arn:aws:s3:::${each.key}/"]
+    }
+  }
+}
+
+
 # # Configure bucket logging
 # resource "aws_s3_bucket_logging" "this" {
 #   for_each = {
