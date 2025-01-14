@@ -7,20 +7,19 @@ s3_buckets = [
         name = "menus"
         data_classification = "public"
         public_access_enabled = true
-        expiration_days = 365
     },
     {
-        name = "invent"
+        name = "inventory"
         data_classification = "internal"
         intelligent_tiering_transition_days = 30
-        expiration_days = 365
+        logging_enabled = true
     },
     {
         name = "payment"
         data_classification = "compliance"
         compliance_standard = "PCI-DSS"
-        glacier_ir_transition_days = 30
-        expiration_days = 365
+        glacier_ir_transition_days = 180
+        expiration_days = 2555
     }
 ]
 
