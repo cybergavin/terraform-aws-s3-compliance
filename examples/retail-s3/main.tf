@@ -4,6 +4,7 @@ module "retail_s3" {
   app_id = var.app_id
   environment = var.environment
   s3_buckets = var.s3_buckets
+  s3_log_retention_days = var.s3_log_retention_days
   global_tags = var.global_tags
 }
 

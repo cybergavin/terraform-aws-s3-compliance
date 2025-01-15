@@ -80,12 +80,12 @@ variable "s3_buckets" {
             (coalesce(bucket.glacier_da_transition_days, 0) > coalesce(bucket.glacier_ir_transition_days, 0) + 90)) &&
           
           # Validate Expiration > max transition days + 180
-          (bucket.expiration_days == null || bucket.expiration_days > max(
+          (bucket.expiration_days == null || (coalesce(bucket.expiration_days,0) > max(
             coalesce(bucket.intelligent_tiering_transition_days, 0),
             coalesce(bucket.glacier_ir_transition_days, 0),
             coalesce(bucket.glacier_fr_transition_days, 0),
             coalesce(bucket.glacier_da_transition_days, 0)
-          ) + 180)
+          ) + 180))
         ) : true
       )
     ])
@@ -127,4 +127,10 @@ EOF
     ])
     error_message = "object_lock_retention_days must be greater than 0 when specified"
   }
+}
+
+variable "s3_log_retention_days" {
+  description = "The number of days to retain S3 logs."
+  type        = number
+  default     = 1
 }

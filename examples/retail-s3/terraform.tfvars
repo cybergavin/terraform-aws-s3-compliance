@@ -1,5 +1,5 @@
 org         = "cg-it" # Cybergavin IT department
-app_id      = "retail"   # Retail Application
+app_id      = "weeat"   # Restaurant Application
 environment = "sbx"   # Sandbox
 
 s3_buckets = [
@@ -23,9 +23,11 @@ s3_buckets = [
     }
 ]
 
+s3_log_retention_days = 5
+
 global_tags = {
-  "cg-it:application:name"       = "Retail"
-  "cg-it:application:id"         = "retail"
+  "cg-it:application:name"       = "Restaurant"
+  "cg-it:application:id"         = "ueat"
   "cg-it:application:owner"      = "Cybergavin IT"
   "cg-it:operations:environment" = "sbx"
   "cg-it:operations:managed_by"  = "OpenTofu"

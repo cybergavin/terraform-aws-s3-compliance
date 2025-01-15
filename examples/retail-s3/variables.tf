@@ -18,6 +18,11 @@ variable "environment" {
   type        = string
 }
 
+variable "s3_log_retention_days" {
+  description = "The number of days to retain S3 logs."
+  type        = number
+}
+
 variable "s3_buckets" {
   description = "List of bucket configurations"
   type = list(object({

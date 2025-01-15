@@ -4,6 +4,9 @@ data "aws_region" "current" {}
 # Data Source for AWS availability zones
 data "aws_availability_zones" "current" {}
 
+# Data Source for AWS caller identity
+data "aws_caller_identity" "current" {}
+
 # Local variables
 locals {
   # Retrieve region details - this breaks for regions like Asia-Pacific
@@ -143,13 +146,12 @@ resource "aws_s3_bucket_versioning" "this" {
 
 # Configure object lock rules - depends on versioning
 resource "aws_s3_bucket_object_lock_configuration" "this" {
+  # Explicit dependency on versioning being enabled
+  depends_on = [aws_s3_bucket_versioning.this]
   for_each = {
     for k, v in local.validated_bucket_configs : k => v
     if v.object_lock_mode != null
   }
-
-  # Explicit dependency on versioning being enabled
-  depends_on = [aws_s3_bucket_versioning.this]
 
   bucket = aws_s3_bucket.this[each.key].id
 
@@ -214,7 +216,6 @@ resource "aws_s3_bucket_policy" "this" {
     ]
   })
 }
-
 
 # Configure lifecycle rules for unversioned buckets
 resource "aws_s3_bucket_lifecycle_configuration" "unversioned" {
@@ -376,47 +377,125 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
   }
 }
 
-# Start Generation Here
+#####################################################################################
+# Centralized CloudTrail Logging for the var.app_id workload for all its S3 buckets
+#####################################################################################
+# Create the centralized logs bucket
 resource "aws_s3_bucket" "centralized_logs" {
   bucket = module.storage_s3_logging_label.id
   
   tags = var.global_tags
-  
 }
 
-resource "aws_cloudtrail" "s3_data_events" {
-  for_each = {
-    for k, v in local.validated_bucket_configs : k => v
-    if v.logging_enabled
+# Configure versioning for the centralized logs bucket
+resource "aws_s3_bucket_versioning" "centralized_logs_versioning" {
+  bucket = aws_s3_bucket.centralized_logs.id
+
+  versioning_configuration {
+    status = "Enabled"
   }
+}
 
-  name                          = "${each.key}-s3-data-events"
-  s3_bucket_name                = aws_s3_bucket.centralized_logs.bucket
-  s3_key_prefix                 = "${each.key}/"
-  is_multi_region_trail         = true
-  enable_logging                = true
+# Configure object lock rules for the centralized logs bucket
+resource "aws_s3_bucket_object_lock_configuration" "centralized_logs" {
+  # Explicit dependency on versioning being enabled
+  depends_on = [aws_s3_bucket_versioning.centralized_logs_versioning]
 
-  event_selector {
-    read_write_type = "All"
-    include_management_events = false
+  bucket = aws_s3_bucket.centralized_logs.id
 
-    data_resource {
-      type = "AWS::S3::Object"
-      values = ["arn:aws:s3:::${each.key}/"]
+  rule {
+    default_retention {
+      mode = "COMPLIANCE"
+      days = var.s3_log_retention_days # While logs are retained, they must be immutable
     }
   }
 }
 
+# Configure lifecycle rules for the centralized logs bucket
+resource "aws_s3_bucket_lifecycle_configuration" "centralized_logs" {
+  # Explicit dependency on versioning being enabled
+  depends_on = [aws_s3_bucket_versioning.centralized_logs_versioning]
 
-# # Configure bucket logging
-# resource "aws_s3_bucket_logging" "this" {
-#   for_each = {
-#     for k, v in local.validated_bucket_configs : k => v
-#     if v.logging_enabled
-#   }
+  bucket = aws_s3_bucket.centralized_logs.id
 
-#   bucket = aws_s3_bucket.this[each.key].id
+  rule {
+      id     = "centralized-logs-lifecycle-rule"
+      status = "Enabled"
 
-#   target_bucket = aws_s3_bucket.this[each.key].id
-#   target_prefix = "logs/"
-# }
+      expiration {
+        days = var.s3_log_retention_days
+      }
+
+      noncurrent_version_expiration {
+        noncurrent_days = var.s3_log_retention_days
+      }
+  }
+}
+
+# Configure a bucket policy for the centralized logs bucket, to allow CloudTrail trails send logs
+resource "aws_s3_bucket_policy" "centralized_logs" {
+  bucket = aws_s3_bucket.centralized_logs.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = flatten([
+      for k, v in local.validated_bucket_configs : [
+        {
+          Sid       = "CloudTrailWriteAccess-${k}"
+          Effect    = "Allow"
+          Action    = "s3:PutObject"
+          Resource  = "${aws_s3_bucket.centralized_logs.arn}/${k}/AWSLogs/${data.aws_caller_identity.current.account_id}/*"
+          Principal = {
+            Service = "cloudtrail.amazonaws.com"
+          }
+          Condition = {
+            StringEquals = {
+              "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+              "s3:x-amz-acl"      = "bucket-owner-full-control"
+              "aws:SourceArn" = "arn:aws:cloudtrail:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:trail/${k}-s3-data-events"
+            }
+          }
+        },
+        {
+          Sid       = "CloudTrailGetBucketAcl-${k}"
+          Effect    = "Allow"
+          Action    = "s3:GetBucketAcl"
+          Resource  = aws_s3_bucket.centralized_logs.arn
+          Principal = {
+            Service = "cloudtrail.amazonaws.com"
+          }
+          Condition = {
+            StringEquals = {
+              "aws:SourceAccount" = data.aws_caller_identity.current.account_id
+              "aws:SourceArn" = "arn:aws:cloudtrail:${data.aws_region.current.name}:${data.aws_caller_identity.current.account_id}:trail/${k}-s3-data-events"
+            }
+          }
+        }
+      ]
+    ])
+  })
+}
+
+# Create CloudTrail trails to send logs for S3 data buckets to the centralized logs bucket
+  resource "aws_cloudtrail" "s3_data_events" {
+    depends_on = [aws_s3_bucket_policy.centralized_logs]
+    for_each = {
+      for k, v in local.validated_bucket_configs : k => v
+      if v.logging_enabled
+    }
+
+    name                          = "${each.key}-s3-data-events"
+    s3_bucket_name                = aws_s3_bucket.centralized_logs.id
+    s3_key_prefix                 = "${each.key}"
+    enable_logging                = true
+
+    event_selector {
+      read_write_type = "All"
+      include_management_events = false
+
+      data_resource {
+        type = "AWS::S3::Object"
+        values = ["arn:aws:s3:::${each.key}/"]
+      }
+    }
+}
