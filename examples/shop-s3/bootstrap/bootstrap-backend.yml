@@ -1,0 +1,104 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  CloudFormation template to create S3 bucket and DynamoDB table for Terraform/OpenTofu backend.
+  Resources are named using the pattern: <org>-<resource>-<appid>-<environment>-tfstate.
+
+Parameters:
+  Org:
+    Type: String
+    Description: Organization name
+    AllowedPattern: "^[a-zA-Z0-9](?!.*--)[a-zA-Z0-9-]{2,7}$"
+    MaxLength: 8
+
+  AppId:
+    Type: String
+    Description: Application ID
+    AllowedPattern: "^[a-zA-Z0-9]{3,8}$"
+    MaxLength: 8
+
+  Environment:
+    Type: String
+    Description: Environment (e.g., sbx, dev, tst, stg, prd)
+    AllowedPattern: "^[a-z]+$"
+    MaxLength: 3
+
+Resources:
+  S3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "${Org}-s3-${AppId}-${Environment}-tfstate"
+      VersioningConfiguration:
+        Status: "Enabled"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "AES256"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      LifecycleConfiguration:
+        Rules:
+          - Id: "ExpireOldVersions"
+            Status: "Enabled"
+            NoncurrentVersionExpirationInDays: 90
+          - Id: "DeleteOldObjects"
+            Status: "Enabled"
+            ExpirationInDays: 365
+      LoggingConfiguration:
+        DestinationBucketName: !Ref S3LogBucket
+        LogFilePrefix: "tfstate-access-logs/"
+
+  # S3 Bucket for storing access logs
+  S3LogBucket:
+    Metadata:
+      checkov:
+        skip:
+          - id: "CKV_AWS_18"
+            comment: "S3 Access logging not set up for OpenTofu state bucket to avoid recursive logging. Use CloudTrail instead."
+          - id: "CKV_AWS_21"
+            comment: "S3 bucket versioning is not required for the access log bucket."
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Sub "${Org}-s3-${AppId}-${Environment}-logs"
+      LifecycleConfiguration:
+        Rules:
+          - Id: "ExpireOldLogs"
+            Status: "Enabled"
+            ExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  DynamoDBTable:
+    Metadata:
+      checkov:
+        skip:
+          - id: "CKV_AWS_28"
+            comment: "DynamoDB PITR is not required for OpenTofu state locking"
+          - id: "CKV_AWS_119"
+            comment: "DynamoDB Table encryption using KMS CMK is not required for OpenTofu state locking"
+    Type: "AWS::DynamoDB::Table"
+    Properties:
+      TableName: !Sub "${Org}-ddbtable-${AppId}-${Environment}-tfstate"
+      BillingMode: "PAY_PER_REQUEST"
+      AttributeDefinitions:
+        - AttributeName: "LockID"
+          AttributeType: "S"
+      KeySchema:
+        - AttributeName: "LockID"
+          KeyType: "HASH"
+      SSESpecification:
+        SSEEnabled: true
+
+Outputs:
+  S3BucketName:
+    Description: Name of the created S3 bucket
+    Value: !Ref S3Bucket
+
+  DynamoDBTableName:
+    Description: Name of the created DynamoDB table
+    Value: !Ref DynamoDBTable

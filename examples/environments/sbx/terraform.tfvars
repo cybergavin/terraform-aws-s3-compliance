@@ -1,5 +1,5 @@
 org         = "cg-it" # Cybergavin IT department
-app_id      = "weeat"   # Restaurant Application
+app_id      = "shop"   # Shopping Application
 environment = "sbx"   # Sandbox
 
 s3_buckets = [
@@ -12,7 +12,6 @@ s3_buckets = [
         name = "inventory"
         data_classification = "internal"
         intelligent_tiering_transition_days = 30
-        logging_enabled = false
     },
     {
         name = "payment"
@@ -23,11 +22,12 @@ s3_buckets = [
     }
 ]
 
-s3_log_retention_days = 5
+# Set the log retention days for the S3 buckets
+s3_log_retention_days = 2
 
 global_tags = {
-  "cg-it:application:name"       = "Restaurant"
-  "cg-it:application:id"         = "ueat"
+  "cg-it:application:name"       = "Shopping"
+  "cg-it:application:id"         = "shop"
   "cg-it:application:owner"      = "Cybergavin IT"
   "cg-it:operations:environment" = "sbx"
   "cg-it:operations:managed_by"  = "OpenTofu"

@@ -26,19 +26,19 @@ variable "s3_log_retention_days" {
 variable "s3_buckets" {
   description = "List of bucket configurations"
   type = list(object({
-    name                       = string
-    data_classification        = string
-    public_access_enabled      = optional(bool)
-    versioning_enabled         = optional(bool)
-    logging_enabled            = optional(bool)
-    kms_master_key_id          = optional(string)
-    compliance_standard        = optional(string)
-    object_lock_mode           = optional(string)
-    object_lock_retention_days = optional(number)
-    expiration_days            = optional(number)
+    name                                = string
+    data_classification                 = string
+    public_access_enabled               = optional(bool)
+    versioning_enabled                  = optional(bool)
+    logging_enabled                     = optional(bool)
+    kms_master_key_id                   = optional(string)
+    compliance_standard                 = optional(string)
+    object_lock_mode                    = optional(string)
+    object_lock_retention_days          = optional(number)
+    expiration_days                     = optional(number)
     intelligent_tiering_transition_days = optional(number)
-    glacier_ir_transition_days    = optional(number)
-    glacier_fr_transition_days    = optional(number)
-    glacier_da_transition_days   = optional(number)
+    glacier_ir_transition_days          = optional(number)
+    glacier_fr_transition_days          = optional(number)
+    glacier_da_transition_days          = optional(number)
   }))
 }
