@@ -1,5 +1,5 @@
 org         = "cg-it" # Cybergavin IT department
-app_id      = "shop"   # Shopping Application
+app_id      = "ecomm"   # Ecommerce Application
 environment = "sbx"   # Sandbox
 
 s3_buckets = [
@@ -8,7 +8,7 @@ s3_buckets = [
         data_classification = "public"
         public_access_enabled = true
         tags = {
-            "cg-it:application:description" = "Shopping application catalogs"
+            "cg-it:application:description" = "Ecommerce application catalogs"
         }
     },
     {
@@ -29,8 +29,8 @@ s3_buckets = [
 s3_log_retention_days = 2
 
 global_tags = {
-  "cg-it:application:name"       = "Shopping"
-  "cg-it:application:id"         = "shop"
+  "cg-it:application:name"       = "Ecommerce"
+  "cg-it:application:id"         = "ecomm"
   "cg-it:application:owner"      = "Cybergavin IT"
   "cg-it:operations:environment" = "sbx"
   "cg-it:operations:managed_by"  = "OpenTofu"

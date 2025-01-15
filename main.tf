@@ -195,6 +195,7 @@ resource "aws_s3_bucket_public_access_block" "this" {
 
 # Configure bucket policy for public access
 resource "aws_s3_bucket_policy" "this" {
+  depends_on = [aws_s3_bucket_public_access_block.this]
   # checkov:skip=CKV_AWS_70: These buckets are public and should not be restricted
   for_each = {
     for k, v in local.validated_bucket_configs : k => v
