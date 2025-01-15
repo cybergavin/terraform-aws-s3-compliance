@@ -471,7 +471,7 @@ resource "aws_s3_bucket_policy" "centralized_logs" {
             }
           }
         }
-      ]
+      ] if v.logging_enabled # Only create policy for buckets with logging enabled
     ])
   })
 }

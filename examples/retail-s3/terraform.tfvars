@@ -12,7 +12,7 @@ s3_buckets = [
         name = "inventory"
         data_classification = "internal"
         intelligent_tiering_transition_days = 30
-        logging_enabled = true
+        logging_enabled = false
     },
     {
         name = "payment"
