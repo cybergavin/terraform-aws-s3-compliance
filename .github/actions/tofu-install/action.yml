@@ -1,0 +1,37 @@
+name: Install OpenTofu
+description: Installs the specified version of OpenTofu.
+inputs:
+  version:
+    description: The version of OpenTofu to install
+    required: true
+    default: "1.8.8"
+runs:
+  using: "composite"
+  steps:
+    - name: Cache OpenTofu .deb package
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/opentofu
+        key: opentofu-${{ inputs.version }}
+        restore-keys: |
+          opentofu-${{ inputs.version }}
+
+    - name: Check if OpenTofu is cached
+      shell: bash
+      run: |
+        if [ ! -f ~/.cache/opentofu/tofu_${{ inputs.version }}_amd64.deb ]; then
+          echo "Downloading OpenTofu package..."
+          curl -LO https://github.com/opentofu/opentofu/releases/download/v${{ inputs.version }}/tofu_${{ inputs.version }}_amd64.deb
+          mkdir -p ~/.cache/opentofu
+          mv tofu_${{ inputs.version }}_amd64.deb ~/.cache/opentofu/
+        fi
+
+    - name: Install OpenTofu
+      shell: bash
+      run: |
+        sudo dpkg -i ~/.cache/opentofu/tofu_${{ inputs.version }}_amd64.deb
+        sudo apt-get install -f
+
+    - name: Verify OpenTofu installation
+      shell: bash
+      run: tofu --version

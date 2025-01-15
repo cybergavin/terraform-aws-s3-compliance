@@ -1,0 +1,88 @@
+name: OpenTofu Module CD Pipeline
+
+on:
+  push:
+    branches:
+      - main  # Trigger when a commit is pushed to main
+
+jobs:
+  stable-release-tag:
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Used by GitHub CLI for API authentication
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Used by GitHub Actions for repository and tag operations
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Fetch all commits and PR data
+        run: |
+          git fetch --prune --unshallow --tags
+
+      - name: Set Git user for tagging
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+
+      - name: Extract Commit Message (Modified PR Title)
+        id: extract_commit_message
+        run: |
+          # Fetch the commit message of the latest commit (merge commit)
+          commit_message=$(git log -1 --pretty=%B)
+          echo "Commit Message: $commit_message"
+          
+          # Extract the PR title (assumes your commit message follows a standard format like "feat: ...")
+          pr_title=$(echo "$commit_message" | head -n 1 | sed 's/^"\(.*\)"$/\1/')
+
+          # Debugging: Log the PR title without quotes
+          echo "PR Title: '$pr_title'"
+
+          # Store the cleaned PR title in the GitHub environment variable
+          echo "pr_title=$pr_title" >> $GITHUB_ENV
+
+      - name: Determine version from PR title
+        id: version
+        run: |
+          # Fetch the latest stable version tag
+          latest_stable_tag=$(git tag -l "v*" | grep -v "beta" | sort -V | tail -n 1)
+          if [ -z "$latest_stable_tag" ]; then
+            latest_stable_tag="v0.0.0"
+          fi
+          echo "Latest stable tag: $latest_stable_tag"
+          
+          # Extract major, minor, patch from the last stable version
+          IFS='.' read -r major minor patch <<< "$(echo "$latest_stable_tag" | sed -E 's/^v([0-9]+)\.([0-9]+)\.([0-9]+)/\1.\2.\3/')"
+          
+          # Determine the version increment based on the PR title
+          if [[ "$pr_title" =~ ^[a-zA-Z]+!: ]]; then
+            # Breaking change -> Increment major version
+            version_tag="v$((major + 1)).0.0"
+          elif [[ "$pr_title" =~ ^feat: ]]; then
+            # Feature -> Increment minor version
+            version_tag="v${major}.$((minor + 1)).0"
+          elif [[ "$pr_title" =~ ^fix: ]]; then
+            # Bug fix -> Increment patch version
+            version_tag="v${major}.${minor}.$((patch + 1))"
+          else
+            # Default: Increment patch version
+            version_tag="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "New version tag: $version_tag"
+          echo "version_tag=$version_tag" >> $GITHUB_ENV
+
+      - name: Create and push stable release tag
+        run: |
+          git tag -a $version_tag -m "Release version $version_tag"
+          git push origin $version_tag
+
+      - name: Create a release
+        uses: actions/create-release@v1
+        with:
+          tag_name: ${{ env.version_tag }}
+          release_name: ${{ env.version_tag }}
+          draft: false
+          prerelease: false
