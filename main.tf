@@ -107,6 +107,10 @@ locals {
         bucket.expiration_days == null ? null : bucket.expiration_days
       )
 
+      # Validate and set tags
+      tags = (
+        bucket.tags == null ? null : bucket.tags
+      )
     }
   }
 }
@@ -118,11 +122,11 @@ resource "aws_s3_bucket" "this" {
   bucket        = each.key
   force_destroy = false
 
-  tags = each.value.compliance_standard != null ? merge(var.global_tags,
+  tags = each.value.compliance_standard != null ? merge(var.global_tags, each.value.tags,
     {
       "${var.org}:security:data_classification" = each.value.data_classification
       "${var.org}:security:compliance"          = each.value.compliance_standard != null ? "${each.value.compliance_standard}:${each.value.object_lock_mode}:${each.value.object_lock_retention_days}" : null
-    }) : merge(var.global_tags,
+    }) : merge(var.global_tags, each.value.tags,
     {
       "${var.org}:security:data_classification" = each.value.data_classification
   })

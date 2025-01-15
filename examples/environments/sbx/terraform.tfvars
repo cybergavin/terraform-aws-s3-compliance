@@ -4,9 +4,12 @@ environment = "sbx"   # Sandbox
 
 s3_buckets = [
     {
-        name = "menus"
+        name = "catalogs"
         data_classification = "public"
         public_access_enabled = true
+        tags = {
+            "cg-it:application:description" = "Shopping application catalogs"
+        }
     },
     {
         name = "inventory"
@@ -22,7 +25,7 @@ s3_buckets = [
     }
 ]
 
-# Set the log retention days for the S3 buckets
+# Set the log retention days for the S3 buckets. Logs are immutable during this period.
 s3_log_retention_days = 2
 
 global_tags = {

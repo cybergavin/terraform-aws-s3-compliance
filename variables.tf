@@ -49,6 +49,7 @@ variable "s3_buckets" {
     glacier_ir_transition_days          = optional(number)
     glacier_fr_transition_days          = optional(number)
     glacier_da_transition_days          = optional(number)
+    tags                                = optional(map(string))
   }))
 
   # Validate lifecycle transition days
