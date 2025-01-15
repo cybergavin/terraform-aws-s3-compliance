@@ -1,12 +1,29 @@
-# OpenTofu Module: `terraform-aws-s3-compliance`
+# OpenTofu Module: `s3-compliance`
 
 This OpenTofu module simplifies the creation and management of AWS S3 storage by enforcing data classification standards and organizational security policies. This module aims to help teams deploy and configure S3 storage with consistent, compliant settings, ensuring secure and scalable storage infrastructure.
 
 ## Key Features
-- **S3 Bucket Provisioning with Data Classifications:** Streamlines the setup of S3 buckets with default options based on organizational data classification standards, while allowing for customization of certain settings.
-- **Consistent nomenclature:** Leverages the cloudposse `terraform-null-label` module for consistent names for S3 buckets.
-- **Policy Enforcement for Security and Compliance:** Enables adherence to security best practices, preventing misconfigurations via input validation.
-- **Scalable and Extensible:** Built to integrate with other AWS services, as part of a broader infrastructure, while remaining focused on simplicity and reliability.
+
+This module provides a comprehensive solution for managing AWS S3 buckets with a focus on compliance, security, and lifecycle management. Below are the salient features of this module:
+
+- **Dynamic S3 Bucket Configuration**: Automatically configures S3 buckets based on user-defined settings and compliance requirements.
+
+- **Data Classification Support**: Validates and applies data classification settings to S3 buckets, ensuring compliance with organizational policies.
+
+- **Public Access Management**: Configures public access settings for S3 buckets, allowing for fine-grained control over public access based on compliance requirements.
+
+- **Versioning and Object Locking**: Supports enabling versioning and object locking for S3 buckets, ensuring data immutability and compliance with retention policies.
+
+- **Server-Side Encryption**: Configures server-side encryption for S3 buckets using AWS KMS, enhancing data security and audit.
+
+- **Lifecycle Management**: Supports lifecycle rules for both versioned and unversioned buckets, automating transitions to different storage classes and managing expiration of objects.
+
+- **Centralized Logging**: Supports a centralized S3 bucket for logging CloudTrail events related to S3 data access, ensuring auditability and compliance.
+
+- **Customizable Tags**: Supports tagging of S3 buckets for better resource management and compliance tracking.
+
+- **Error Handling and Validation**: Includes validation checks to ensure that configurations adhere to compliance standards, preventing misconfigurations.
+
 
 <!-- BEGIN_TF_DOCS -->
 ## Requirements
