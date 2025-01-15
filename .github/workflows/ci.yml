@@ -144,7 +144,7 @@ jobs:
           mask-aws-account-id: true
 
       - name: Run Bootstrap Script
-        working-directory: examples/sales-spoke-vpc/bootstrap
+        working-directory: examples/shop-s3/bootstrap
         run: |
           chmod +x bootstrap.sh
           ./bootstrap.sh ${{ vars.ENVIRONMENT }}
@@ -172,18 +172,18 @@ jobs:
           version: ${{ env.OPENTOFU_VERSION }}
 
       - name: Tofu Init
-        working-directory: examples/sales-spoke-vpc
+        working-directory: examples/shop-s3
         run: tofu init --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars"
 
       - name: Tofu Plan
-        working-directory: examples/sales-spoke-vpc
+        working-directory: examples/shop-s3
         run: tofu plan --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars" --out=tfplan.binary
           
       - name: Upload Plan
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
-          path: examples/sales-spoke-vpc/tfplan.binary
+          path: examples/shop-s3/tfplan.binary
       
   test-scan-plan:
     # Job to scan the OpenTofu plan for security vulnerabilities
@@ -205,7 +205,7 @@ jobs:
         uses: bridgecrewio/checkov-action@v12
         with:
           file: ./tfplan.binary
-          repo_root_for_plan_enrichment: examples/sales-spoke-vpc
+          repo_root_for_plan_enrichment: examples/shop-s3
           download_external_modules: true
           config_file: .checkov.yml
           output_format: cli,sarif
@@ -241,17 +241,17 @@ jobs:
           version: ${{ env.OPENTOFU_VERSION }}       
 
       - name: Tofu Init
-        working-directory: examples/sales-spoke-vpc
+        working-directory: examples/shop-s3
         run: tofu init --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars"
 
       - name: Download Plan
         uses: actions/download-artifact@v4
         with:
           name: tfplan
-          path: examples/sales-spoke-vpc
+          path: examples/shop-s3
 
       - name: Tofu Apply
-        working-directory: examples/sales-spoke-vpc
+        working-directory: examples/shop-s3
         run: tofu apply tfplan.binary
 
   test-tofu-destroy:
@@ -277,11 +277,11 @@ jobs:
           version: ${{ env.OPENTOFU_VERSION }}        
 
       - name: Tofu Init
-        working-directory: examples/sales-spoke-vpc
+        working-directory: examples/shop-s3
         run: tofu init --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars"
 
       - name: Tofu Destroy
-        working-directory: examples/sales-spoke-vpc
+        working-directory: examples/shop-s3
         run: tofu destroy --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars" -auto-approve
       
   pre-release-tag:
