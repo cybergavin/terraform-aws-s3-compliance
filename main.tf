@@ -4,6 +4,13 @@ data "aws_region" "current" {}
 # Data Source for AWS caller identity
 data "aws_caller_identity" "current" {}
 
+# terraform-docs-ignore
+variable "s3logs_force_destroy_enabled" {
+  description = "Enable force_destroy for testing in CI/CD"
+  type        = bool
+  default     = false
+}
+
 # Local variables
 locals {
   # Retrieve region details - this breaks for regions like Asia-Pacific
@@ -14,7 +21,7 @@ locals {
   s3_buckets_map = {
     for bucket in var.s3_buckets :
     module.storage_s3_bucket_label[bucket.name].id => bucket
-    if contains(keys(local.data_compliance), bucket.data_classification)
+    if contains(keys(local.data_compliance), bucket.data_classification) # Only create buckets for data classifications that have compliance standards
   }
 
   # Validate and merge user settings with compliance configuration
@@ -66,40 +73,41 @@ locals {
 
       # Validate and set object lock mode
       object_lock_mode = (
-        bucket.object_lock_mode == null && local.data_compliance[bucket.data_classification].config.object_lock_mode.value == null ? null : (
+        bucket.object_lock == null && local.data_compliance[bucket.data_classification].config.object_lock_mode.value == null ? null : (
           local.data_compliance[bucket.data_classification].config.object_lock_mode.allow_override ?
-          coalesce(bucket.object_lock_mode, local.data_compliance[bucket.data_classification].config.object_lock_mode.value) :
+          coalesce(bucket.object_lock.mode, local.data_compliance[bucket.data_classification].config.object_lock_mode.value) :
           local.data_compliance[bucket.data_classification].config.object_lock_mode.value
         )
       )
 
       # Validate and set object lock retention days
+      # Replace the problematic code with this safer version
       object_lock_retention_days = (
-        bucket.object_lock_retention_days == null && local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value == null ? null : (
+        bucket.object_lock == null && local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value == null ? null : (
           local.data_compliance[bucket.data_classification].config.object_lock_retention_days.allow_override ?
-          coalesce(bucket.object_lock_retention_days, local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value) :
+          try(coalesce(bucket.object_lock.retention_days, local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value), local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value) :
           local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value
         )
       )
 
       # Validate and set intelligent tiering transition days
       intelligent_tiering_transition_days = (
-        bucket.intelligent_tiering_transition_days == null ? null : bucket.intelligent_tiering_transition_days
+        bucket.lifecycle_transitions == null ? null : (bucket.lifecycle_transitions.intelligent_tiering_days == null ? null : bucket.lifecycle_transitions.intelligent_tiering_days)
       )
 
       # Validate and set Glacier Instant Retrieval transition days 
       glacier_ir_transition_days = (
-        bucket.glacier_ir_transition_days == null ? null : bucket.glacier_ir_transition_days
+        bucket.lifecycle_transitions == null ? null : (bucket.lifecycle_transitions.glacier_ir_days == null ? null : bucket.lifecycle_transitions.glacier_ir_days)
       )
 
       # Validate and set Glacier Flexible Retrieval transition days
       glacier_fr_transition_days = (
-        bucket.glacier_fr_transition_days == null ? null : bucket.glacier_fr_transition_days
+        bucket.lifecycle_transitions == null ? null : (bucket.lifecycle_transitions.glacier_fr_days == null ? null : bucket.lifecycle_transitions.glacier_fr_days)
       )
 
       # Validate and set Glacier Deep Archive transition days
       glacier_da_transition_days = (
-        bucket.glacier_da_transition_days == null ? null : bucket.glacier_da_transition_days
+        bucket.lifecycle_transitions == null ? null : (bucket.lifecycle_transitions.glacier_da_days == null ? null : bucket.lifecycle_transitions.glacier_da_days)
       )
 
       # Validate and set expiration days
@@ -107,6 +115,10 @@ locals {
         bucket.expiration_days == null ? null : bucket.expiration_days
       )
 
+      # Validate and set tags
+      tags = (
+        bucket.tags == null ? null : bucket.tags
+      )
     }
   }
 }
@@ -118,11 +130,11 @@ resource "aws_s3_bucket" "this" {
   bucket        = each.key
   force_destroy = false
 
-  tags = each.value.compliance_standard != null ? merge(var.global_tags,
+  tags = each.value.compliance_standard != null ? merge(var.global_tags, each.value.tags,
     {
       "${var.org}:security:data_classification" = each.value.data_classification
       "${var.org}:security:compliance"          = each.value.compliance_standard != null ? "${each.value.compliance_standard}:${each.value.object_lock_mode}:${each.value.object_lock_retention_days}" : null
-    }) : merge(var.global_tags,
+    }) : merge(var.global_tags, each.value.tags,
     {
       "${var.org}:security:data_classification" = each.value.data_classification
   })
@@ -170,6 +182,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
   bucket = aws_s3_bucket.this[each.key].id
 
   rule {
+    bucket_key_enabled = true
     apply_server_side_encryption_by_default {
       kms_master_key_id = each.value.kms_master_key_id == "default-internal-key" ? null : each.value.kms_master_key_id
       sse_algorithm     = "aws:kms"
@@ -191,6 +204,7 @@ resource "aws_s3_bucket_public_access_block" "this" {
 
 # Configure bucket policy for public access
 resource "aws_s3_bucket_policy" "this" {
+  depends_on = [aws_s3_bucket_public_access_block.this]
   # checkov:skip=CKV_AWS_70: These buckets are public and should not be restricted
   for_each = {
     for k, v in local.validated_bucket_configs : k => v
@@ -231,10 +245,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "unversioned" {
     id     = "lifecycle-rule"
     status = "Enabled"
 
+    # Abort incomplete multipart uploads
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
 
+    # Transition to Intelligent Tiering
     dynamic "transition" {
       for_each = each.value.intelligent_tiering_transition_days != null ? [1] : []
       content {
@@ -243,6 +259,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "unversioned" {
       }
     }
 
+    # Transition to Glacier Instant Retrieval
     dynamic "transition" {
       for_each = each.value.glacier_ir_transition_days != null ? [1] : []
       content {
@@ -251,6 +268,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "unversioned" {
       }
     }
 
+    # Transition to Glacier Flexible Retrieval
     dynamic "transition" {
       for_each = each.value.glacier_fr_transition_days != null ? [1] : []
       content {
@@ -259,6 +277,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "unversioned" {
       }
     }
 
+    # Transition to Glacier Deep Archive
     dynamic "transition" {
       for_each = each.value.glacier_da_transition_days != null ? [1] : []
       content {
@@ -267,6 +286,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "unversioned" {
       }
     }
 
+    # Expire objects
     dynamic "expiration" {
       for_each = each.value.expiration_days != null ? [1] : []
       content {
@@ -296,10 +316,12 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
     id     = "lifecycle-rule"
     status = "Enabled"
 
+    # Abort incomplete multipart uploads
     abort_incomplete_multipart_upload {
       days_after_initiation = 7
     }
 
+    # Transition to Intelligent Tiering for current versions
     dynamic "transition" {
       for_each = each.value.intelligent_tiering_transition_days != null ? [1] : []
       content {
@@ -308,6 +330,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Transition to Intelligent Tiering for non-current versions
     dynamic "noncurrent_version_transition" {
       for_each = each.value.intelligent_tiering_transition_days != null ? [1] : []
       content {
@@ -316,6 +339,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Transition to Glacier Instant Retrieval for current versions
     dynamic "transition" {
       for_each = each.value.glacier_ir_transition_days != null ? [1] : []
       content {
@@ -324,6 +348,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Transition to Glacier Instant Retrieval for non-current versions
     dynamic "noncurrent_version_transition" {
       for_each = each.value.glacier_ir_transition_days != null ? [1] : []
       content {
@@ -332,6 +357,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Transition to Glacier Flexible Retrieval for current versions
     dynamic "transition" {
       for_each = each.value.glacier_fr_transition_days != null ? [1] : []
       content {
@@ -340,6 +366,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Transition to Glacier Flexible Retrieval for non-current versions
     dynamic "noncurrent_version_transition" {
       for_each = each.value.glacier_fr_transition_days != null ? [1] : []
       content {
@@ -348,6 +375,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Transition to Glacier Deep Archive for current versions
     dynamic "transition" {
       for_each = each.value.glacier_da_transition_days != null ? [1] : []
       content {
@@ -356,6 +384,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Transition to Glacier Deep Archive for non-current versions
     dynamic "noncurrent_version_transition" {
       for_each = each.value.glacier_da_transition_days != null ? [1] : []
       content {
@@ -364,6 +393,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Expire objects for current versions
     dynamic "expiration" {
       for_each = each.value.expiration_days != null ? [1] : []
       content {
@@ -371,6 +401,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
       }
     }
 
+    # Expire objects for non-current versions
     dynamic "noncurrent_version_expiration" {
       for_each = each.value.expiration_days != null ? [1] : []
       content {
@@ -387,11 +418,27 @@ resource "aws_s3_bucket_lifecycle_configuration" "versioned" {
 resource "aws_s3_bucket" "centralized_logs" {
   bucket = module.storage_s3_logging_label.id
 
+  force_destroy = var.s3logs_force_destroy_enabled
+
   tags = var.global_tags
 }
 
-# Configure versioning for the centralized logs bucket
+# Configure server-side encryption for the centralized logs bucket
+resource "aws_s3_bucket_server_side_encryption_configuration" "centralized_logs" {
+  bucket = aws_s3_bucket.centralized_logs.id
+
+  rule {
+    bucket_key_enabled = true
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+    }
+  }
+}
+
+# Configure versioning for the centralized logs bucket if versioning is enabled
 resource "aws_s3_bucket_versioning" "centralized_logs_versioning" {
+  for_each = toset(coalesce(var.s3_logs.versioning_enabled, false) ? ["enabled"] : [])
+
   bucket = aws_s3_bucket.centralized_logs.id
 
   versioning_configuration {
@@ -399,8 +446,10 @@ resource "aws_s3_bucket_versioning" "centralized_logs_versioning" {
   }
 }
 
-# Configure object lock rules for the centralized logs bucket
+# Configure object lock rules for the centralized logs bucket if immutability is enabled  
 resource "aws_s3_bucket_object_lock_configuration" "centralized_logs" {
+  for_each = toset(coalesce(var.s3_logs.immutability_enabled, false) ? ["enabled"] : [])
+
   # Explicit dependency on versioning being enabled
   depends_on = [aws_s3_bucket_versioning.centralized_logs_versioning]
 
@@ -409,7 +458,7 @@ resource "aws_s3_bucket_object_lock_configuration" "centralized_logs" {
   rule {
     default_retention {
       mode = "COMPLIANCE"
-      days = var.s3_log_retention_days # While logs are retained, they must be immutable
+      days = coalesce(var.s3_logs.retention_days, 30)
     }
   }
 }
@@ -425,12 +474,19 @@ resource "aws_s3_bucket_lifecycle_configuration" "centralized_logs" {
     id     = "centralized-logs-lifecycle-rule"
     status = "Enabled"
 
-    expiration {
-      days = var.s3_log_retention_days
+    # Abort incomplete multipart uploads
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 7
     }
 
+    # Expire current versions
+    expiration {
+      days = coalesce(var.s3_logs.retention_days, 30)
+    }
+
+    # Expire non-current versions
     noncurrent_version_expiration {
-      noncurrent_days = var.s3_log_retention_days
+      noncurrent_days = coalesce(var.s3_logs.retention_days, 30)
     }
   }
 }

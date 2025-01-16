@@ -1,0 +1,391 @@
+name: OpenTofu Module CI Pipeline
+
+# Trigger the workflow on push to any branch except main (GitHub flow)
+on:
+  push:
+    branches-ignore:
+      - main
+
+# Environment variables for the workflow
+env:
+  OPENTOFU_VERSION: "1.8.8"
+  
+jobs:
+  # Find changes in the repository
+  find-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        id: checkout_repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Fetch the default branch
+        run: git fetch origin main  # Get source of truth
+    
+      - name: Get added or modified files
+        run: |
+            git diff --diff-filter=AM --name-only origin/main..HEAD > changed_files.txt
+    
+      - name: List changed files
+        run: |
+          echo "Added or modified files:"
+          cat changed_files.txt
+
+      - name: Determine file types and set outputs
+        id: file-types
+        run: |
+          CHANGED_TF_FILES=$(cat changed_files.txt | grep -E '\.tf$' | tr '\n' ' ')
+          echo "Changed OpenTofu files: $CHANGED_TF_FILES"
+          CHANGED_YAML_FILES=$(cat changed_files.txt | grep -E '\.yml$' | tr '\n' ' ')
+          echo "Changed YAML files: $CHANGED_YAML_FILES"
+          if [ -n "$CHANGED_TF_FILES" -o -n "$CHANGED_YAML_FILES" ]; then
+            echo "run_job=true" >> "$GITHUB_OUTPUT"
+            echo "changed_tf_files=${CHANGED_TF_FILES}" >> "$GITHUB_OUTPUT"
+            echo "changed_yaml_files=${CHANGED_YAML_FILES}" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_job=false" >> "$GITHUB_OUTPUT"
+          fi     
+    outputs:
+        run_job: ${{ steps.file-types.outputs.run_job }}
+        changed_tf_files: ${{ steps.file-types.outputs.changed_tf_files }}
+
+  format-check:
+    # Job to check the changed Terraform/OpenTofu files for formatting errors
+    runs-on: ubuntu-latest
+    needs: find-changes
+    if: needs.find-changes.outputs.run_job == 'true'
+    env:
+      CHANGED_TF_FILES: ${{ needs.find-changes.outputs.changed_tf_files }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install OpenTofu
+        uses: ./.github/actions/tofu-install
+        with:
+          version: ${{ env.OPENTOFU_VERSION }}      
+
+      - name: Format changed OpenTofu .tf files
+        run: |
+          if [ -n "$CHANGED_TF_FILES" ]; then
+            echo "Formatting changed files: $CHANGED_TF_FILES"
+            tofu fmt -check $CHANGED_TF_FILES
+            if [ $? -ne 0 ]; then
+              echo "Formatting error found"
+              exit 1
+            fi
+          else
+            echo "No Terraform/OpenTofu files changed."
+          fi
+
+  lint-check:
+    # Job to check the changed Terraform/OpenTofu files for linting errors
+    runs-on: ubuntu-latest
+    needs: find-changes
+    if: needs.find-changes.outputs.run_job == 'true'
+    env:
+      CHANGED_TF_FILES: ${{ needs.find-changes.outputs.changed_tf_files }}
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Cache plugin dir
+        uses: actions/cache@v4
+        with:
+          path: ~/.tflint.d/plugins
+          key: tflint-${{ hashFiles('**/*.tf') }}
+          restore-keys: |
+            tflint-
+
+      - name: Setup TFLint
+        uses: terraform-linters/setup-tflint@v4
+        with:
+          tflint_version: v0.54.0
+
+      - name: Init TFLint
+        run: tflint --init          
+
+      - name: Show version
+        run: tflint --version
+
+      - name: Run TFLint on changed Terraform/OpenTofu files in modules
+        run: |
+          if [ -n "$CHANGED_TF_FILES" ]; then
+            for dir in $(echo "$CHANGED_TF_FILES" | xargs -n1 dirname | sort -u); do
+              echo "Linting Terraform files in $dir"
+              tflint --chdir=$dir --recursive -f compact
+              if [ $? -ne 0 ]; then
+                echo "TFLint error found"
+                exit 1
+              fi
+            done
+          else
+            echo "No Terraform/OpenTofu files changed."
+          fi
+  
+  bootstrap-test-tofu:
+    # Job to bootstrap the sbx environment by creating the resources for a remote backend for OpenTofu state
+    runs-on: ubuntu-latest
+    needs: [format-check, lint-check]
+    environment: sbx
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          mask-aws-account-id: true
+
+      - name: Run Bootstrap Script
+        working-directory: examples/shop-s3/bootstrap
+        run: |
+          chmod +x bootstrap.sh
+          ./bootstrap.sh ${{ vars.ENVIRONMENT }}
+
+  test-tofu-plan:
+    # Job to generate an OpenTofu plan for the sbx environment
+    needs: [bootstrap-test-tofu]
+    runs-on: ubuntu-latest
+    environment: sbx
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          mask-aws-account-id: true
+
+      - name: Install OpenTofu
+        uses: ./.github/actions/tofu-install
+        with:
+          version: ${{ env.OPENTOFU_VERSION }}
+
+      - name: Tofu Init
+        working-directory: examples/shop-s3
+        run: tofu init --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars"
+
+      - name: Tofu Plan
+        working-directory: examples/shop-s3
+        run: tofu plan --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars" --var="s3logs_force_destroy_enabled=true" --out=tfplan.binary
+          
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: examples/shop-s3/tfplan.binary
+      
+  test-scan-plan:
+    # Job to scan the OpenTofu plan for security vulnerabilities
+    needs: [test-tofu-plan]
+    runs-on: ubuntu-latest
+    environment: sbx  
+    permissions:
+      security-events: write
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+
+      - name: Checkov Scan
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          file: ./tfplan.binary
+          repo_root_for_plan_enrichment: examples/shop-s3
+          download_external_modules: true
+          config_file: .checkov.yml
+          output_format: cli,sarif
+          output_file_path: console,results.sarif
+          soft_fail: true
+          
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3  
+        with:
+          sarif_file: results.sarif
+          category: checkov
+
+  test-tofu-apply:
+    # Job to apply the OpenTofu plan for the sbx environment after manual approval
+    needs: [test-scan-plan]
+    runs-on: ubuntu-latest
+    environment: sbx-approval
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          mask-aws-account-id: true
+
+      - name: Install OpenTofu
+        uses: ./.github/actions/tofu-install
+        with:
+          version: ${{ env.OPENTOFU_VERSION }}       
+
+      - name: Tofu Init
+        working-directory: examples/shop-s3
+        run: tofu init --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars"
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: examples/shop-s3
+
+      - name: Tofu Apply
+        working-directory: examples/shop-s3
+        run: tofu apply tfplan.binary
+
+  test-tofu-destroy:
+    # Job to destroy the OpenTofu plan for the sbx environment after manual approval
+    needs: [test-tofu-apply]
+    runs-on: ubuntu-latest
+    environment: sbx-approval
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_DEFAULT_REGION }}
+          mask-aws-account-id: true
+
+      - name: Install OpenTofu
+        uses: ./.github/actions/tofu-install
+        with:
+          version: ${{ env.OPENTOFU_VERSION }}        
+
+      - name: Tofu Init
+        working-directory: examples/shop-s3
+        run: tofu init --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars"
+
+      - name: Tofu Destroy
+        working-directory: examples/shop-s3
+        run: tofu destroy --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars" -auto-approve
+      
+  pre-release-tag:
+    # Job to create a pre-release tag for the repository, prior to creating a pull request
+    needs: [format-check, lint-check, test-tofu-destroy]
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    permissions:
+      contents: write
+    if: |
+      always() &&
+      (needs.format-check.result == 'skipped' || needs.lint-check.result == 'skipped' || needs.test-tofu-destroy.result == 'success')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Fetch all tags
+        run: |
+          git fetch --tags  # Ensure that all tags are fetched
+
+      - name: Get latest stable tag
+        id: version
+        run: |
+          # Fetch the latest stable version tag
+          latest_stable_tag=$(git tag -l "v*" | grep -v "beta" | sort -V | tail -n 1)
+          if [ -z "$latest_stable_tag" ]; then
+            latest_stable_tag="v0.0.0"
+          fi
+          echo "Latest stable tag: $latest_stable_tag"
+                    
+          # Extract major, minor, patch from last tag
+          version_base=$(echo $latest_stable_tag | sed -E 's/v([0-9]+)\.([0-9]+)\.([0-9]+)/\1.\2.\3/')
+          echo "Base version: $version_base"
+          
+          # Count the number of betas by finding all existing tags that start with the version base
+          beta_count=$(git tag -l "v${version_base}-beta*" | wc -l)
+          next_beta=$((beta_count + 1))
+          
+          # Construct the new beta version
+          new_version="v${version_base}-beta.${next_beta}"
+          echo "New version: $new_version"
+          echo "new_version=$new_version" >> $GITHUB_ENV
+
+      - name: Create pre-release tag
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git tag -a $new_version -m "Pre-release version $new_version"
+          git push origin $new_version
+
+  check-existing-pr:
+    # Job to check if a pull request already exists for the branch
+    needs: pre-release-tag
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+    permissions:
+      pull-requests: read
+    if: always() && needs.pre-release-tag.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract branch name
+        id: extract_branch
+        run: echo "branch_name=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+
+      - name: Check for existing Pull Request
+        id: check_pr
+        run: |
+          existing_pr=$(gh pr list --base main --head $branch_name --json number --jq '.[0].number')
+          if [ -n "$existing_pr" ]; then
+            echo "pr_exists=true" >> $GITHUB_ENV
+          else
+            echo "pr_exists=false" >> $GITHUB_ENV
+          fi
+    outputs:
+        pr_exists: ${{ env.pr_exists }}
+
+  create-pull-request:
+
+    runs-on: ubuntu-latest
+    needs: check-existing-pr
+    permissions:
+      contents: write
+      pull-requests: write
+    if: always() &&needs.check-existing-pr.outputs.pr_exists == 'false'
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract branch name
+        id: extract_branch
+        run: echo "branch_name=${GITHUB_REF#refs/heads/}" >> $GITHUB_ENV
+
+      - name: Create Pull Request
+        run: |
+          echo "Creating a pull request for branch: $branch_name"
+          gh pr create \
+            --base main \
+            --head $branch_name \
+            --title "Auto PR (Modify title with feature|bugfix|release|etc): $branch_name" \
+            --body "This PR was auto-generated for branch $branch_name."

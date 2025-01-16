@@ -18,27 +18,44 @@ variable "environment" {
   type        = string
 }
 
-variable "s3_log_retention_days" {
-  description = "The number of days to retain S3 logs."
-  type        = number
-}
-
 variable "s3_buckets" {
   description = "List of bucket configurations"
   type = list(object({
-    name                                = string
-    data_classification                 = string
-    public_access_enabled               = optional(bool)
-    versioning_enabled                  = optional(bool)
-    logging_enabled                     = optional(bool)
-    kms_master_key_id                   = optional(string)
-    compliance_standard                 = optional(string)
-    object_lock_mode                    = optional(string)
-    object_lock_retention_days          = optional(number)
-    expiration_days                     = optional(number)
-    intelligent_tiering_transition_days = optional(number)
-    glacier_ir_transition_days          = optional(number)
-    glacier_fr_transition_days          = optional(number)
-    glacier_da_transition_days          = optional(number)
+    # Basic configuration
+    name                  = string
+    data_classification   = string
+    public_access_enabled = optional(bool, false)
+    versioning_enabled    = optional(bool)
+    logging_enabled       = optional(bool)
+    tags                  = optional(map(string), {})
+
+    # Encryption settings
+    kms_master_key_id   = optional(string, null) # Use S3-managed keys by default
+    compliance_standard = optional(string, null) # e.g., "PCI-DSS", "HIPAA", "ISO27001"
+
+    # Object Lock settings
+    object_lock = optional(object({
+      mode           = optional(string, null) # "GOVERNANCE" or "COMPLIANCE"
+      retention_days = optional(number, null) # Number of days to retain objects in locked state
+    }), null)
+
+    # Lifecycle configuration
+    lifecycle_transitions = optional(object({
+      intelligent_tiering_days = optional(number, null)
+      glacier_ir_days          = optional(number, null)
+      glacier_fr_days          = optional(number, null)
+      glacier_da_days          = optional(number, null)
+    }), null)
+
+    expiration_days = optional(number, null) # Expiration after the latest transition
   }))
+}
+
+variable "s3_logs" {
+  description = "Global settings for S3 logs"
+  type = object({
+    retention_days       = optional(number)
+    versioning_enabled   = optional(bool)
+    immutability_enabled = optional(bool)
+  })
 }

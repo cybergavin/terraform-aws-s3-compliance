@@ -33,71 +33,103 @@ variable "environment" {
 }
 
 variable "s3_buckets" {
-  description = "List of bucket configurations"
+  description = "List of S3 bucket configurations."
   type = list(object({
-    name                                = string
-    data_classification                 = string
-    public_access_enabled               = optional(bool)
-    versioning_enabled                  = optional(bool)
-    logging_enabled                     = optional(bool)
-    kms_master_key_id                   = optional(string)
-    compliance_standard                 = optional(string)
-    object_lock_mode                    = optional(string)
-    object_lock_retention_days          = optional(number)
-    expiration_days                     = optional(number)
-    intelligent_tiering_transition_days = optional(number)
-    glacier_ir_transition_days          = optional(number)
-    glacier_fr_transition_days          = optional(number)
-    glacier_da_transition_days          = optional(number)
+    # Basic configuration
+    name                  = string
+    data_classification   = string
+    public_access_enabled = optional(bool, false)
+    versioning_enabled    = optional(bool)
+    logging_enabled       = optional(bool)
+    tags                  = optional(map(string), {})
+
+    # Encryption settings
+    kms_master_key_id   = optional(string, null) # Use S3-managed keys by default
+    compliance_standard = optional(string, null) # e.g., "PCI-DSS", "HIPAA", "ISO27001"
+
+    # Object Lock settings
+    object_lock = optional(object({
+      mode           = optional(string, null) # "GOVERNANCE" or "COMPLIANCE"
+      retention_days = optional(number, null) # Number of days to retain objects in locked state
+    }), null)
+
+    # Lifecycle configuration
+    lifecycle_transitions = optional(object({
+      intelligent_tiering_days = optional(number, null)
+      glacier_ir_days          = optional(number, null)
+      glacier_fr_days          = optional(number, null)
+      glacier_da_days          = optional(number, null)
+    }), null)
+
+    expiration_days = optional(number, null) # Expiration after the latest transition
   }))
 
-  # Validate lifecycle transition days
+  ### Validation Rules
+
+  # Validation rules for s3_buckets
   validation {
-    condition = alltrue([
-      for bucket in var.s3_buckets : (
-        # If any transition days are set, validate the full lifecycle configuration
-        anytrue([
-          bucket.intelligent_tiering_transition_days != null,
-          bucket.glacier_ir_transition_days != null,
-          bucket.glacier_fr_transition_days != null,
-          bucket.glacier_da_transition_days != null,
-          bucket.expiration_days != null
-          ]) ? (
-          # Validate Glacier-IR > Intelligent-Tiering
-          (bucket.glacier_ir_transition_days == null || bucket.intelligent_tiering_transition_days == null ||
-          (coalesce(bucket.glacier_ir_transition_days, 0) > coalesce(bucket.intelligent_tiering_transition_days, 0))) &&
+    condition = alltrue(flatten([
+      # Ensure that retention_days is set only if object_lock.mode is specified
+      [for bucket in var.s3_buckets :
+        bucket.object_lock == null ||
+        try(bucket.object_lock.mode != null && bucket.object_lock.retention_days != null, true)
+      ],
 
-          # Validate Glacier-FR > Glacier-IR + 90 days
-          (bucket.glacier_fr_transition_days == null || bucket.glacier_ir_transition_days == null ||
-          (coalesce(bucket.glacier_fr_transition_days, 0) > coalesce(bucket.glacier_ir_transition_days, 0) + 90)) &&
+      # Ensure that transition days are non-negative
+      [for bucket in var.s3_buckets :
+        bucket.lifecycle_transitions == null ||
+        (
+          try(bucket.lifecycle_transitions.intelligent_tiering_days == null, true) ||
+          try(bucket.lifecycle_transitions.intelligent_tiering_days >= 0, false)
+        ) &&
+        (
+          try(bucket.lifecycle_transitions.glacier_ir_days == null, true) ||
+          try(bucket.lifecycle_transitions.glacier_ir_days >= 0, false)
+        ) &&
+        (
+          try(bucket.lifecycle_transitions.glacier_fr_days == null, true) ||
+          try(bucket.lifecycle_transitions.glacier_fr_days >= 0, false)
+        ) &&
+        (
+          try(bucket.lifecycle_transitions.glacier_da_days == null, true) ||
+          try(bucket.lifecycle_transitions.glacier_da_days >= 0, false)
+        )
+      ],
 
-          # Validate Glacier-DA > Glacier-FR + 90 days
-          (bucket.glacier_da_transition_days == null || bucket.glacier_fr_transition_days == null ||
-          (coalesce(bucket.glacier_da_transition_days, 0) > coalesce(bucket.glacier_fr_transition_days, 0) + 90)) &&
+      # Ensure expiration_days is at least 90 days more than Glacier IR and FR days
+      [for bucket in var.s3_buckets :
+        bucket.expiration_days == null ||
+        bucket.lifecycle_transitions == null ||
+        (
+          try(bucket.lifecycle_transitions.glacier_ir_days == null, true) ||
+          try(bucket.expiration_days >= bucket.lifecycle_transitions.glacier_ir_days + 90, false)
+        ) &&
+        (
+          try(bucket.lifecycle_transitions.glacier_fr_days == null, true) ||
+          try(bucket.expiration_days >= bucket.lifecycle_transitions.glacier_fr_days + 90, false)
+        )
+      ],
 
-          # Validate Glacier-DA > Glacier-IR + 90 days (if Glacier-FR is not provided)
-          (bucket.glacier_da_transition_days == null || bucket.glacier_ir_transition_days == null ||
-          (coalesce(bucket.glacier_da_transition_days, 0) > coalesce(bucket.glacier_ir_transition_days, 0) + 90)) &&
-
-          # Validate Expiration > max transition days + 180
-          (bucket.expiration_days == null || (coalesce(bucket.expiration_days, 0) > max(
-            coalesce(bucket.intelligent_tiering_transition_days, 0),
-            coalesce(bucket.glacier_ir_transition_days, 0),
-            coalesce(bucket.glacier_fr_transition_days, 0),
-            coalesce(bucket.glacier_da_transition_days, 0)
-          ) + 180))
-        ) : true
-      )
-    ])
+      # Ensure expiration_days is at least 180 days more than Glacier Deep Archive days
+      [for bucket in var.s3_buckets :
+        bucket.expiration_days == null ||
+        bucket.lifecycle_transitions == null ||
+        try(bucket.lifecycle_transitions.glacier_da_days == null, true) ||
+        try(bucket.expiration_days >= bucket.lifecycle_transitions.glacier_da_days + 180, false)
+      ]
+    ]))
 
     error_message = <<EOF
 Invalid lifecycle configuration. Requirements:
-1) glacier_ir_transition_days must be greater than intelligent_tiering_transition_days.
-2) glacier_fr_transition_days must be at least 90 days after glacier_ir_transition_days.
-3) glacier_da_transition_days must be at least 90 days after glacier_fr_transition_days (or glacier_ir_transition_days if glacier_fr is not set).
-4) expiration_days must be at least 180 days after the latest transition day (intelligent_tiering, glacier_ir, glacier_fr, or glacier_da).
+1) Object lock retention days can only be set when object lock mode is specified
+2) All transition days must be non-negative numbers when specified
+3) Expiration days must be at least 90 days after Glacier IR and FR transitions
+4) Expiration days must be at least 180 days after Glacier Deep Archive transition
 EOF
   }
+
+
+
 
   # Validate bucket names
   validation {
@@ -105,32 +137,69 @@ EOF
       for bucket in var.s3_buckets :
       can(regex("^[a-zA-Z0-9]{3,10}$", bucket.name))
     ])
-    error_message = "Bucket names must be 3-10 characters long and contain only alphanumeric characters"
+    error_message = "Bucket names must be 3-10 characters long and contain only alphanumeric characters."
   }
 
-  # Validate object lock mode values
+  # Validate object lock mode
   validation {
     condition = alltrue([
       for bucket in var.s3_buckets :
-      bucket.object_lock_mode == null ? true :
-      contains(["GOVERNANCE", "COMPLIANCE"], bucket.object_lock_mode)
+      bucket.object_lock == null ||
+      try(bucket.object_lock.mode == null || contains(["GOVERNANCE", "COMPLIANCE"], bucket.object_lock.mode), true)
     ])
-    error_message = "object_lock_mode must be either 'GOVERNANCE' or 'COMPLIANCE' when specified"
+    error_message = "Object lock mode must be either 'GOVERNANCE' or 'COMPLIANCE' when specified."
   }
 
-  # Validate object lock retention days is positive when specified
+  # Validate object lock retention days
   validation {
     condition = alltrue([
       for bucket in var.s3_buckets :
-      bucket.object_lock_retention_days == null ? true :
-      bucket.object_lock_retention_days > 0
+      bucket.object_lock == null ||
+      try(
+        bucket.object_lock.retention_days == null ||
+        (bucket.object_lock.retention_days >= 1 && bucket.object_lock.retention_days <= 36500),
+        true
+      )
     ])
-    error_message = "object_lock_retention_days must be greater than 0 when specified"
+    error_message = "Object lock retention days must be between 1 and 36500 days (100 years) when specified."
+  }
+
+  validation {
+    condition = alltrue([
+      for bucket in var.s3_buckets :
+      bucket.object_lock == null ||
+      try(
+        bucket.object_lock.mode != null &&
+        contains(["GOVERNANCE", "COMPLIANCE"], bucket.object_lock.mode) &&
+        (bucket.object_lock.retention_days == null || bucket.object_lock.retention_days > 0),
+        true
+      )
+    ])
+    error_message = "When object_lock is specified: mode must be 'GOVERNANCE' or 'COMPLIANCE', and retention_days (if specified) must be greater than 0."
   }
 }
 
-variable "s3_log_retention_days" {
-  description = "The number of days to retain S3 logs."
-  type        = number
-  default     = 1
+variable "s3_logs" {
+  description = "Global settings for S3 CloudTrail logs"
+  type = object({
+    retention_days       = optional(number)
+    versioning_enabled   = optional(bool)
+    immutability_enabled = optional(bool)
+  })
+  default = {
+    retention_days       = 30
+    versioning_enabled   = false
+    immutability_enabled = false # Immutability can only be enabled when versioning is enabled
+  }
+  validation {
+    condition     = coalesce(var.s3_logs.retention_days, 30) > 0
+    error_message = "S3 log retention days must be greater than 0."
+  }
+  validation {
+    condition = !(
+      coalesce(var.s3_logs.immutability_enabled, false) &&
+      !coalesce(var.s3_logs.versioning_enabled, false)
+    )
+    error_message = "Immutability can only be enabled when versioning is enabled."
+  }
 }
