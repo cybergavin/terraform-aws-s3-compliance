@@ -82,7 +82,7 @@ locals {
           allow_override = false
         }
         object_lock_retention_days = {
-          value          = 90
+          value          = 30
           allow_override = false
         }
       }

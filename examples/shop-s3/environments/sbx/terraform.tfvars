@@ -1,36 +1,50 @@
 org         = "cg-it" # Cybergavin IT department
-app_id      = "ecomm"   # Ecommerce Application
+app_id      = "sales"   # Sales Application
 environment = "sbx"   # Sandbox
 
 s3_buckets = [
     {
         name = "catalogs"
         data_classification = "public"
-        public_access_enabled = true
         tags = {
-            "cg-it:application:description" = "Ecommerce application catalogs"
+            "cg-it:application:description" = "Sales product catalogs"
         }
     },
     {
         name = "inventory"
         data_classification = "internal"
-        intelligent_tiering_transition_days = 30
+        tags = {
+            "cg-it:application:description" = "Sales inventory"
+        }
+        lifecycle_transitions = {
+            intelligent_tiering_days = 180
+        }
+        expiration_days = 730
     },
     {
         name = "payment"
         data_classification = "compliance"
         compliance_standard = "PCI-DSS"
-        glacier_ir_transition_days = 180
+        tags = {
+            "cg-it:application:description" = "Sales payment transactions"
+        }
+        lifecycle_transitions = {
+            intelligent_tiering_days = 180
+            glacier_ir_days = 365
+            glacier_fr_days = 730
+        }
         expiration_days = 2555
     }
 ]
 
-# Set the log retention days for the S3 buckets. Logs are immutable during this period.
-s3_log_retention_days = 2
+s3_logs = {
+    retention_days = 30
+    immutability_enabled = false
+}
 
 global_tags = {
-  "cg-it:application:name"       = "Ecommerce"
-  "cg-it:application:id"         = "ecomm"
+  "cg-it:application:name"       = "Sales"
+  "cg-it:application:id"         = "sales"
   "cg-it:application:owner"      = "Cybergavin IT"
   "cg-it:operations:environment" = "sbx"
   "cg-it:operations:managed_by"  = "OpenTofu"

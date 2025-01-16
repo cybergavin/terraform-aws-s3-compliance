@@ -177,7 +177,7 @@ jobs:
 
       - name: Tofu Plan
         working-directory: examples/shop-s3
-        run: tofu plan --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars" --out=tfplan.binary
+        run: tofu plan --var-file="environments/${{ vars.ENVIRONMENT }}/terraform.tfvars" --var="s3logs_force_destroy_enabled=true" --out=tfplan.binary
           
       - name: Upload Plan
         uses: actions/upload-artifact@v4
