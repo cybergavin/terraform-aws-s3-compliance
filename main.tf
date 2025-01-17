@@ -81,7 +81,6 @@ locals {
       )
 
       # Validate and set object lock retention days
-      # Replace the problematic code with this safer version
       object_lock_retention_days = (
         bucket.object_lock == null && local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value == null ? null : (
           local.data_compliance[bucket.data_classification].config.object_lock_retention_days.allow_override ?
@@ -140,6 +139,91 @@ resource "aws_s3_bucket" "this" {
   })
 }
 
+
+# Configure server-side encryption
+resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
+  for_each = {
+    for k, v in local.validated_bucket_configs : k => v
+    if v.kms_master_key_id != null
+  }
+
+  bucket = aws_s3_bucket.this[each.key].id
+
+  rule {
+    bucket_key_enabled = true
+    apply_server_side_encryption_by_default {
+      kms_master_key_id = each.value.kms_master_key_id == "default-internal-key" ? null : each.value.kms_master_key_id
+      sse_algorithm     = "aws:kms"
+    }
+  }
+}
+
+# Configure public access block
+resource "aws_s3_bucket_public_access_block" "this" {
+  for_each = local.validated_bucket_configs
+
+  bucket = aws_s3_bucket.this[each.key].id
+
+  block_public_acls       = each.value.public_access_enabled ? false : true
+  block_public_policy     = each.value.public_access_enabled ? false : true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# Configure bucket policy for public access
+resource "aws_s3_bucket_policy" "this" {
+  depends_on = [aws_s3_bucket_public_access_block.this]
+  # checkov:skip=CKV_AWS_70: These buckets are public and should not be restricted
+  for_each = {
+    for k, v in local.validated_bucket_configs : k => v
+    if v.public_access_enabled # Only create the bucket policy if public access is enabled
+  }
+
+  bucket = aws_s3_bucket.this[each.key].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.this[each.key].arn}/*"
+      }
+    ]
+  })
+}
+
+# Configure bucket policy to restrict TLS access
+resource "aws_s3_bucket_policy" "tls_access_policy" {
+  depends_on = [aws_s3_bucket_public_access_block.this]
+  # checkov:skip=CKV_AWS_70: These buckets are public and should not be restricted
+  for_each = {
+    for k, v in local.validated_bucket_configs : k => v
+    if v.public_access_enabled # Only create the bucket policy if public access is enabled
+  }
+
+  bucket = aws_s3_bucket.this[each.key].id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "RestrictToTLSRequestsOnly"
+        Effect    = "Deny"
+        Principal = "*"
+        Action    = "s3:*"
+        Resource  = [aws_s3_bucket.this[each.key].arn, "${aws_s3_bucket.this[each.key].arn}/*"]
+        Condition = {
+          Bool = {
+            "aws:SecureTransport" = "false"
+          }
+        }
+      }
+    ]
+  })
+}
+
 # Configure versioning - must be enabled before object lock
 resource "aws_s3_bucket_versioning" "this" {
   for_each = {
@@ -170,60 +254,6 @@ resource "aws_s3_bucket_object_lock_configuration" "this" {
       days = each.value.object_lock_retention_days
     }
   }
-}
-
-# Configure server-side encryption
-resource "aws_s3_bucket_server_side_encryption_configuration" "this" {
-  for_each = {
-    for k, v in local.validated_bucket_configs : k => v
-    if v.kms_master_key_id != null
-  }
-
-  bucket = aws_s3_bucket.this[each.key].id
-
-  rule {
-    bucket_key_enabled = true
-    apply_server_side_encryption_by_default {
-      kms_master_key_id = each.value.kms_master_key_id == "default-internal-key" ? null : each.value.kms_master_key_id
-      sse_algorithm     = "aws:kms"
-    }
-  }
-}
-
-# Configure public access block
-resource "aws_s3_bucket_public_access_block" "this" {
-  for_each = local.validated_bucket_configs
-
-  bucket = aws_s3_bucket.this[each.key].id
-
-  block_public_acls       = !each.value.public_access_enabled
-  block_public_policy     = !each.value.public_access_enabled
-  ignore_public_acls      = !each.value.public_access_enabled
-  restrict_public_buckets = !each.value.public_access_enabled
-}
-
-# Configure bucket policy for public access
-resource "aws_s3_bucket_policy" "this" {
-  depends_on = [aws_s3_bucket_public_access_block.this]
-  # checkov:skip=CKV_AWS_70: These buckets are public and should not be restricted
-  for_each = {
-    for k, v in local.validated_bucket_configs : k => v
-    if v.public_access_enabled # Only create the bucket policy if public access is enabled
-  }
-
-  bucket = aws_s3_bucket.this[each.key].id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect    = "Allow"
-        Principal = "*"
-        Action    = "s3:GetObject"
-        Resource  = "${aws_s3_bucket.this[each.key].arn}/*"
-      }
-    ]
-  })
 }
 
 # Configure lifecycle rules for unversioned buckets
@@ -423,6 +453,16 @@ resource "aws_s3_bucket" "centralized_logs" {
   tags = var.global_tags
 }
 
+# Configure public access block for the centralized logs bucket
+resource "aws_s3_bucket_public_access_block" "centralized_logs" {
+  bucket = aws_s3_bucket.centralized_logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
 # Configure server-side encryption for the centralized logs bucket
 resource "aws_s3_bucket_server_side_encryption_configuration" "centralized_logs" {
   bucket = aws_s3_bucket.centralized_logs.id
@@ -543,10 +583,11 @@ resource "aws_cloudtrail" "s3_data_events" {
     if v.logging_enabled
   }
 
-  name           = "${each.key}-s3-data-events"
-  s3_bucket_name = aws_s3_bucket.centralized_logs.id
-  s3_key_prefix  = each.key
-  enable_logging = true
+  name                       = "${each.key}-s3-data-events"
+  s3_bucket_name             = aws_s3_bucket.centralized_logs.id
+  s3_key_prefix              = each.key
+  enable_logging             = true
+  enable_log_file_validation = true
 
   event_selector {
     read_write_type           = "All"
