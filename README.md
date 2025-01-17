@@ -3,11 +3,11 @@
 
 # OpenTofu Module: `s3-compliance`
 
-This OpenTofu module simplifies the creation and management of AWS S3 storage by enforcing data classification standards and organizational security policies. This module aims to help teams deploy and configure S3 storage with consistent, compliant settings, ensuring secure and scalable storage infrastructure.
+This OpenTofu module simplifies the creation and management of AWS S3 buckets by enforcing data classification standards and organizational security policies. This *opinionated* module aims to help teams deploy and configure S3 storage with consistent, **compliant** settings, ensuring secure and scalable storage infrastructure. The compliance settings are embedded in the module (`s3-compliance.tf`). You may view these settings by checking the module's output `compliance_standards`. The default data classifications in the module's compliance settings are `public`, `internal` and `compliance`. You may customize these settings (e.g., rename the data classifications or add more data classifications) by forking this repo and then modifying the embedded `s3-compliance.tf`.  
 
 ## Key Features
 
-This module provides a comprehensive solution for managing AWS S3 buckets with a focus on compliance, security, and lifecycle management. Below are the salient features of this module:
+This module provides a solution for managing AWS S3 buckets with a focus on compliance, security, and lifecycle management. Below are the salient features of this module:
 
 - **Dynamic S3 Bucket Configuration**: Automatically configures S3 buckets based on user-defined settings and compliance requirements.
 
@@ -24,6 +24,8 @@ This module provides a comprehensive solution for managing AWS S3 buckets with a
 - **Centralized Logging**: Supports a centralized S3 bucket for logging CloudTrail events related to S3 data access, ensuring auditability and compliance.
 
 - **Customizable Tags**: Supports tagging of S3 buckets for better resource management and compliance tracking.
+
+- **Consistent Names**: Leverages the `label` terraform module to provision resources with a standardized nomenclature.
 
 - **Error Handling and Validation**: Includes validation checks to ensure that configurations adhere to compliance standards, preventing misconfigurations.
 
