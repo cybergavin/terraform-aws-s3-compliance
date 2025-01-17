@@ -37,7 +37,7 @@ variable "s3_buckets" {
   type = list(object({
     # Basic configuration
     name                  = string
-    data_classification   = string
+    data_classification   = string # Defaults are "public", "internal" and "compliance"
     public_access_enabled = optional(bool, false)
     versioning_enabled    = optional(bool)
     logging_enabled       = optional(bool)

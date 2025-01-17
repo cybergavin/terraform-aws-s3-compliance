@@ -197,10 +197,8 @@ resource "aws_s3_bucket_policy" "this" {
 # Configure bucket policy to restrict TLS access
 resource "aws_s3_bucket_policy" "tls_access_policy" {
   depends_on = [aws_s3_bucket_public_access_block.this]
-  # checkov:skip=CKV_AWS_70: These buckets are public and should not be restricted
   for_each = {
     for k, v in local.validated_bucket_configs : k => v
-    if v.public_access_enabled # Only create the bucket policy if public access is enabled
   }
 
   bucket = aws_s3_bucket.this[each.key].id
