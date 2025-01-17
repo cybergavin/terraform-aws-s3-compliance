@@ -1,3 +1,6 @@
+![](https://github.com/cybergavin/terraform-aws-s3-compliance/actions/workflows/ci.yml/badge.svg)
+![](https://github.com/cybergavin/terraform-aws-s3-compliance/actions/workflows/cd.yml/badge.svg)
+
 # OpenTofu Module: `s3-compliance`
 
 This OpenTofu module simplifies the creation and management of AWS S3 storage by enforcing data classification standards and organizational security policies. This module aims to help teams deploy and configure S3 storage with consistent, compliant settings, ensuring secure and scalable storage infrastructure.
@@ -60,6 +63,8 @@ This module provides a comprehensive solution for managing AWS S3 buckets with a
 | [aws_s3_bucket_object_lock_configuration.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_object_lock_configuration) | resource |
 | [aws_s3_bucket_policy.centralized_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy) | resource |
 | [aws_s3_bucket_policy.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy) | resource |
+| [aws_s3_bucket_policy.tls_access_policy](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_policy) | resource |
+| [aws_s3_bucket_public_access_block.centralized_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
 | [aws_s3_bucket_public_access_block.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_public_access_block) | resource |
 | [aws_s3_bucket_server_side_encryption_configuration.centralized_logs](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |
 | [aws_s3_bucket_server_side_encryption_configuration.this](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket_server_side_encryption_configuration) | resource |

@@ -7,7 +7,17 @@ skip-path:
 
 skip-check:
   - CKV2_AWS_5  # Not required for this OpenTofu module
-  - CKV2_AWS_11 # Not required for this OpenTofu module.  
+  - CKV2_AWS_6  # Not applicable to public buckets
+  - CKV2_AWS_11 # Not required for this OpenTofu module. 
+  - CKV_AWS_144 # Cross-region replication is intentionally not used for this OpenTofu module.
+  - CKV2_AWS_10 # Cloudwatch logging is intentionally not used for this OpenTofu module.
+  - CKV_AWS_18  # CloudTrail logging is used instead of the unreliable S3 access logging
+  - CKV2_AWS_62 # Event notifications are intentionally not used for this OpenTofu module.
+  - CKV_AWS_67  # SIngle-region CloudTrail is adequate
+  - CKV_AWS_53  # Not applicable to public buckets
+  - CKV_AWS_54  # Not applicable to public buckets
+  - CKV_AWS_35  # AWS managed KMS key is used for centralized logs bucket
+  - CKV_AWS_252 # SNS Topic not required, as SIEM will be used as strategic solution (CloudTrail --> S3 --> SIEM)
 
 # General settings
 compact: true
@@ -22,4 +32,3 @@ quiet: true
 summary-position: bottom
 
 download-external-modules: true
-soft-fail: true
