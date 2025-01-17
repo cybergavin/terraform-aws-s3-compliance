@@ -49,6 +49,24 @@ Resources:
       LoggingConfiguration:
         DestinationBucketName: !Ref S3LogBucket
         LogFilePrefix: "tfstate-access-logs/"
+  
+  S3BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref S3Bucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Deny
+            Principal:
+              AWS: "*" # all principals should use https
+            Action: "*" # for any actions 
+            Resource: # for the bucket and all its objects
+              - !Sub arn:aws:s3:::${S3Bucket}  # Bucket ARN
+              - !Sub arn:aws:s3:::${S3Bucket}/*  # Objects in the bucket
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
 
   # S3 Bucket for storing access logs
   S3LogBucket:
@@ -72,6 +90,24 @@ Resources:
         BlockPublicPolicy: true
         IgnorePublicAcls: true
         RestrictPublicBuckets: true
+  
+  S3BucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      Bucket: !Ref S3LogBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Deny
+            Principal:
+              AWS: "*" # all principals should use https
+            Action: "*" # for any actions 
+            Resource: # for the bucket and all its objects
+              - !Sub arn:aws:s3:::${S3LogBucket}  # Bucket ARN
+              - !Sub arn:aws:s3:::${S3LogBucket}/*  # Objects in the bucket
+            Condition:
+              Bool:
+                "aws:SecureTransport": false
 
   DynamoDBTable:
     Metadata:

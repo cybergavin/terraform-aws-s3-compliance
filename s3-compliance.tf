@@ -39,7 +39,7 @@ locals {
           allow_override = true
         }
         logging_enabled = {
-          value          = false
+          value          = true
           allow_override = true
         }
         kms_master_key_id = {
@@ -64,11 +64,11 @@ locals {
         }
         versioning_enabled = {
           value          = true
-          allow_override = false
+          allow_override = true
         }
         logging_enabled = {
           value          = true
-          allow_override = false
+          allow_override = true
         }
         kms_master_key_id = {
           value          = "default-internal-key"
@@ -79,11 +79,11 @@ locals {
         }
         object_lock_mode = {
           value          = "COMPLIANCE"
-          allow_override = false
+          allow_override = true
         }
         object_lock_retention_days = {
           value          = 30
-          allow_override = false
+          allow_override = true
         }
       }
     }

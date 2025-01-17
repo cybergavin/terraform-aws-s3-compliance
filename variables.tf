@@ -37,8 +37,8 @@ variable "s3_buckets" {
   type = list(object({
     # Basic configuration
     name                  = string
-    data_classification   = string
-    public_access_enabled = optional(bool, false)
+    data_classification   = string # Defaults are "public", "internal" and "compliance"
+    public_access_enabled = optional(bool)
     versioning_enabled    = optional(bool)
     logging_enabled       = optional(bool)
     tags                  = optional(map(string), {})
@@ -128,9 +128,6 @@ Invalid lifecycle configuration. Requirements:
 EOF
   }
 
-
-
-
   # Validate bucket names
   validation {
     condition = alltrue([
@@ -140,30 +137,7 @@ EOF
     error_message = "Bucket names must be 3-10 characters long and contain only alphanumeric characters."
   }
 
-  # Validate object lock mode
-  validation {
-    condition = alltrue([
-      for bucket in var.s3_buckets :
-      bucket.object_lock == null ||
-      try(bucket.object_lock.mode == null || contains(["GOVERNANCE", "COMPLIANCE"], bucket.object_lock.mode), true)
-    ])
-    error_message = "Object lock mode must be either 'GOVERNANCE' or 'COMPLIANCE' when specified."
-  }
-
-  # Validate object lock retention days
-  validation {
-    condition = alltrue([
-      for bucket in var.s3_buckets :
-      bucket.object_lock == null ||
-      try(
-        bucket.object_lock.retention_days == null ||
-        (bucket.object_lock.retention_days >= 1 && bucket.object_lock.retention_days <= 36500),
-        true
-      )
-    ])
-    error_message = "Object lock retention days must be between 1 and 36500 days (100 years) when specified."
-  }
-
+  # Validate object lock
   validation {
     condition = alltrue([
       for bucket in var.s3_buckets :
@@ -179,6 +153,7 @@ EOF
   }
 }
 
+# Validate S3 logs
 variable "s3_logs" {
   description = "Global settings for S3 CloudTrail logs"
   type = object({

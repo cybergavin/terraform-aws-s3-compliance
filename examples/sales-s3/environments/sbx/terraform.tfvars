@@ -6,6 +6,7 @@ s3_buckets = [
     {
         name = "catalogs"
         data_classification = "public"
+        public_access_enabled = true
         tags = {
             "cg-it:application:description" = "Sales product catalogs"
         }
