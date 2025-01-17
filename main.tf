@@ -74,18 +74,20 @@ locals {
       # Validate and set object lock mode
       object_lock_mode = (
         bucket.object_lock == null && local.data_compliance[bucket.data_classification].config.object_lock_mode.value == null ? null : (
-          local.data_compliance[bucket.data_classification].config.object_lock_mode.allow_override ?
-          coalesce(bucket.object_lock.mode, local.data_compliance[bucket.data_classification].config.object_lock_mode.value) :
-          local.data_compliance[bucket.data_classification].config.object_lock_mode.value
+          !local.data_compliance[bucket.data_classification].config.object_lock_mode.allow_override &&
+          bucket.object_lock != null ?
+          local.data_compliance[bucket.data_classification].config.object_lock_mode.value :
+          coalesce(bucket.object_lock.mode, local.data_compliance[bucket.data_classification].config.object_lock_mode.value)
         )
       )
 
       # Validate and set object lock retention days
       object_lock_retention_days = (
         bucket.object_lock == null && local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value == null ? null : (
-          local.data_compliance[bucket.data_classification].config.object_lock_retention_days.allow_override ?
-          try(coalesce(bucket.object_lock.retention_days, local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value), local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value) :
-          local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value
+          !local.data_compliance[bucket.data_classification].config.object_lock_retention_days.allow_override &&
+          bucket.object_lock != null ?
+          local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value :
+          coalesce(bucket.object_lock.retention_days, local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value)
         )
       )
 
