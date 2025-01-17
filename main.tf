@@ -24,48 +24,41 @@ locals {
     if contains(keys(local.data_compliance), bucket.data_classification) # Only create buckets for data classifications that have compliance standards
   }
 
-  # Validate and merge user settings with compliance configuration
+  # Validate and merge user settings with compliance configuration to create the validated_bucket_configs map
   validated_bucket_configs = {
     for name, bucket in local.s3_buckets_map : name => {
       # Set data classification
       data_classification = bucket.data_classification
 
-
-      # Validate and merge settings
+      # Validate and set public access
       public_access_enabled = (
-        !local.data_compliance[bucket.data_classification].config.public_access_enabled.allow_override &&
-        bucket.public_access_enabled != local.data_compliance[bucket.data_classification].config.public_access_enabled.value ?
-        local.data_compliance[bucket.data_classification].config.public_access_enabled.value :
-        coalesce(bucket.public_access_enabled, local.data_compliance[bucket.data_classification].config.public_access_enabled.value)
+        local.data_compliance[bucket.data_classification].config.public_access_enabled.allow_override ?
+        coalesce(bucket.public_access_enabled, local.data_compliance[bucket.data_classification].config.public_access_enabled.value) :
+        local.data_compliance[bucket.data_classification].config.public_access_enabled.value
       )
 
       # Validate and set versioning
       versioning_enabled = (
-        !local.data_compliance[bucket.data_classification].config.versioning_enabled.allow_override &&
-        bucket.versioning_enabled != local.data_compliance[bucket.data_classification].config.versioning_enabled.value ?
-        local.data_compliance[bucket.data_classification].config.versioning_enabled.value :
-        coalesce(bucket.versioning_enabled, local.data_compliance[bucket.data_classification].config.versioning_enabled.value)
+        local.data_compliance[bucket.data_classification].config.versioning_enabled.allow_override ?
+        coalesce(bucket.versioning_enabled, local.data_compliance[bucket.data_classification].config.versioning_enabled.value) :
+        local.data_compliance[bucket.data_classification].config.versioning_enabled.value
       )
 
       # Validate and set logging
       logging_enabled = (
-        !local.data_compliance[bucket.data_classification].config.logging_enabled.allow_override &&
-        bucket.logging_enabled != local.data_compliance[bucket.data_classification].config.logging_enabled.value ?
-        local.data_compliance[bucket.data_classification].config.logging_enabled.value :
-        coalesce(bucket.logging_enabled, local.data_compliance[bucket.data_classification].config.logging_enabled.value)
+        local.data_compliance[bucket.data_classification].config.logging_enabled.allow_override ?
+        coalesce(bucket.logging_enabled, local.data_compliance[bucket.data_classification].config.logging_enabled.value) :
+        local.data_compliance[bucket.data_classification].config.logging_enabled.value
       )
 
       # Validate and set KMS
       kms_master_key_id = (
-        bucket.kms_master_key_id == null && local.data_compliance[bucket.data_classification].config.kms_master_key_id.value == null ? null : (
-          !local.data_compliance[bucket.data_classification].config.kms_master_key_id.allow_override &&
-          bucket.kms_master_key_id != null ?
-          local.data_compliance[bucket.data_classification].config.kms_master_key_id.value :
-          coalesce(bucket.kms_master_key_id, local.data_compliance[bucket.data_classification].config.kms_master_key_id.value)
-        )
+        bucket.kms_master_key_id == null ? local.data_compliance[bucket.data_classification].config.kms_master_key_id.value :
+        (local.data_compliance[bucket.data_classification].config.kms_master_key_id.allow_override ? bucket.kms_master_key_id :
+        local.data_compliance[bucket.data_classification].config.kms_master_key_id.value)
       )
 
-      # Set compliance standard
+      # Validate and set compliance standard
       compliance_standard = (
         !contains(keys(local.data_compliance[bucket.data_classification].config), "compliance_standard") ? null :
         coalesce(bucket.compliance_standard, local.data_compliance[bucket.data_classification].config.compliance_standard.value)
@@ -73,22 +66,18 @@ locals {
 
       # Validate and set object lock mode
       object_lock_mode = (
-        bucket.object_lock == null && local.data_compliance[bucket.data_classification].config.object_lock_mode.value == null ? null : (
-          !local.data_compliance[bucket.data_classification].config.object_lock_mode.allow_override &&
-          bucket.object_lock != null ?
-          local.data_compliance[bucket.data_classification].config.object_lock_mode.value :
-          coalesce(bucket.object_lock.mode, local.data_compliance[bucket.data_classification].config.object_lock_mode.value)
-        )
+        bucket.object_lock == null ? local.data_compliance[bucket.data_classification].config.object_lock_mode.value :
+        (local.data_compliance[bucket.data_classification].config.object_lock_mode.allow_override ?
+          (bucket.object_lock.mode != null ? bucket.object_lock.mode : local.data_compliance[bucket.data_classification].config.object_lock_mode.value) :
+        local.data_compliance[bucket.data_classification].config.object_lock_mode.value)
       )
 
       # Validate and set object lock retention days
       object_lock_retention_days = (
-        bucket.object_lock == null && local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value == null ? null : (
-          !local.data_compliance[bucket.data_classification].config.object_lock_retention_days.allow_override &&
-          bucket.object_lock != null ?
-          local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value :
-          coalesce(bucket.object_lock.retention_days, local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value)
-        )
+        bucket.object_lock == null ? local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value :
+        (local.data_compliance[bucket.data_classification].config.object_lock_retention_days.allow_override ?
+          (bucket.object_lock.retention_days != null ? bucket.object_lock.retention_days : local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value) :
+        local.data_compliance[bucket.data_classification].config.object_lock_retention_days.value)
       )
 
       # Validate and set intelligent tiering transition days

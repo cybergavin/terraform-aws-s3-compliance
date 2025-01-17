@@ -39,7 +39,7 @@ locals {
           allow_override = true
         }
         logging_enabled = {
-          value          = false
+          value          = true
           allow_override = true
         }
         kms_master_key_id = {
