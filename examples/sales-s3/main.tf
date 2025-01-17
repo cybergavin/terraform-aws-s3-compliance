@@ -1,4 +1,4 @@
-# Use the s3-compliance OpenTofu module for a salesping application
+# Use the s3-compliance OpenTofu module for a sales application
 module "sales-s3" {
   source                       = "../../"
   org                          = var.org
