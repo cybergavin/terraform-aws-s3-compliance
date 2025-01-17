@@ -20,7 +20,7 @@ s3_buckets = [
         lifecycle_transitions = {
             intelligent_tiering_days = 180
         }
-        expiration_days = 730
+        expiration_days = 365
     },
     {
         name = "payment"
